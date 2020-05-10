@@ -1,0 +1,74 @@
+Description: Update Dovecot name to include Distribution in login greeting
+ message.  This patch was found at: https://blueprints.launchpad.net/ubuntu/+spec/servercloud-s-server-app-banner-updates
+ and originally provided by Ubuntu for their 2.1.7 package.  The original
+ author is  Yolanda Robla <yolanda.robla@canonical.com>.  I updated it
+ for Debian's 2.2.5 package.
+Author: Jaldhar H. Vyas <jaldhar@debian.org>
+Last-Update: 2018-07-04
+---
+ configure.ac                      |    7 ++++++-
+ src/config/all-settings.c         |    4 ++--
+ src/lmtp/lmtp-settings.c          |    2 +-
+ src/login-common/login-settings.c |    2 +-
+ 4 files changed, 10 insertions(+), 5 deletions(-)
+
+--- a/configure.ac
++++ b/configure.ac
+@@ -295,7 +295,12 @@
+ # SIZE_MAX is missing without this
+ CXXFLAGS="$CXXFLAGS -D__STDC_LIMIT_MACROS"
+ 
+-AC_DEFINE_UNQUOTED(DOVECOT_NAME, "$PACKAGE_NAME", [Dovecot name])
++if test -x /usr/bin/lsb_release && lsb_release -si; then
++    DOVECOT_DISTRIBUTION=" ($(lsb_release -si))"
++else
++    DOVECOT_DISTRIBUTION=""
++fi
++AC_DEFINE_UNQUOTED(DOVECOT_NAME, "$PACKAGE_NAME$DOVECOT_DISTRIBUTION", Dovecot name)
+ AC_DEFINE_UNQUOTED(DOVECOT_STRING, "$PACKAGE_STRING", [Dovecot string])
+ AC_DEFINE_UNQUOTED(DOVECOT_VERSION, "$PACKAGE_VERSION", [Dovecot version])
+ 
+--- a/src/lmtp/lmtp-settings.c
++++ b/src/lmtp/lmtp-settings.c
+@@ -85,7 +85,7 @@
+ 	.lmtp_rawlog_dir = "",
+ 	.lmtp_proxy_rawlog_dir = "",
+ 
+-	.login_greeting = PACKAGE_NAME" ready.",
++	.login_greeting = DOVECOT_NAME" ready.",
+ 	.login_trusted_networks = "",
+ 
+ 	.mail_plugins = "",
+--- a/src/login-common/login-settings.c
++++ b/src/login-common/login-settings.c
+@@ -48,7 +48,7 @@
+ static const struct login_settings login_default_settings = {
+ 	.login_trusted_networks = "",
+ 	.login_source_ips = "",
+-	.login_greeting = PACKAGE_NAME" ready.",
++	.login_greeting = DOVECOT_NAME" ready.",
+ 	.login_log_format_elements = "user=<%u> method=%m rip=%r lip=%l mpid=%e %c session=<%{session}>",
+ 	.login_log_format = "%$: %s",
+ 	.login_access_sockets = "",
+--- a/src/lib-smtp/smtp-server.c
++++ b/src/lib-smtp/smtp-server.c
+@@ -47,7 +47,7 @@
+ 	if (set->login_greeting != NULL && *set->login_greeting != '\0')
+ 		server->set.login_greeting = p_strdup(pool, set->login_greeting);
+ 	else
+-		server->set.login_greeting = PACKAGE_NAME" ready.";
++		server->set.login_greeting = DOVECOT_NAME" ready.";
+ 	if (set->capabilities == 0) {
+ 		server->set.capabilities = SMTP_SERVER_DEFAULT_CAPABILITIES;
+ 	} else  {
+--- a/src/submission/submission-settings.c
++++ b/src/submission/submission-settings.c
+@@ -101,7 +101,7 @@
+ 
+ 	.hostname = "",
+ 
+-	.login_greeting = PACKAGE_NAME" ready.",
++	.login_greeting = DOVECOT_NAME" ready.",
+ 	.login_trusted_networks = "",
+ 
+ 	.submission_max_mail_size = 40*1024*1024,

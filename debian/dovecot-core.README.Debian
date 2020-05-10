@@ -1,0 +1,35 @@
+Dovecot Debian package
+======================
+
+Please refer to http://wiki2.dovecot.org for the full documentation of this
+package and its configuration.
+
+Note that the default value for mbox_write_locks differs between Debian and
+upstream Dovecot:
+	Debian:  mbox_write_locks = "fnctl dotlock"
+	Dovecot: mbox_write_locks = "dotlock fnctl"
+
+TLS setup
+---------
+
+TLS is enabled by default on new installations. Dovecot will use the
+self-signed certificate provided by ssl-cert-snakeoil by default. The
+certificate and key are accessed via symbolic links in /etc/dovecot/private.
+
+If you wish to use your own certificates, feel free to replace the symbolic
+links in /etc/dovecot/private with the actual certificate/key of your
+preference, or place the certificate and key at the location of your preference
+and update /etc/dovecot/conf.d/10-ssl.conf accordingly.
+
+dovenull group
+--------------
+
+Upstream recommends that for security's sake, the dovenull user should belong
+to its own private group to which no one else belongs.  Prior to 2.2.9-1, the
+dovenull user was in the nogroup group which contains other users.  This has
+been rectified for new installs but upgraders should make the change
+themselves like this:
+
+# addgroup --system --group dovenull
+# usermod -g dovenull dovenull
+

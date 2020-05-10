@@ -1,0 +1,4 @@
+etc/dovecot/conf.d
+etc/dovecot/private
+usr/share/dovecot/protocols.d
+var/lib/dovecot

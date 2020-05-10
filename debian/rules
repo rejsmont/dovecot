@@ -1,0 +1,200 @@
+#!/usr/bin/make -f
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+SHELL=/bin/bash -O extglob
+PIGEONHOLE_DIR=$(CURDIR)/pigeonhole
+
+export DEB_BUILD_MAINT_OPTIONS=hardening=+all
+
+# LP: 1636781 - strip incompatible default linker option
+ifeq ($(shell dpkg-vendor --derives-from Ubuntu && echo yes),yes)
+  export DEB_LDFLAGS_MAINT_STRIP = -Wl,-Bsymbolic-functions
+endif
+
+# Macros to help move files to the module packages
+CORE_DIR=$(CURDIR)/debian/dovecot-core
+PKG_DIR=$(CURDIR)/debian/dovecot-PKG
+MOVE=install -d $(PKG_DIR:PKG=$(2))/$(dir $(1)); mv $(CORE_DIR)/$(1) $(PKG_DIR:PKG=$(2))/$(dir $(1));
+
+# Files to move from dovecot-core to the individual packages. Files added to
+# <addon>_files will be automatically moved from dovecot's tree to the
+# respective package.
+auth-lua_files = usr/lib/dovecot/modules/auth/libauthdb_lua.so
+
+imapd_files = usr/lib/dovecot/imap* \
+	      usr/lib/dovecot/modules/lib??_imap_!(*sieve*) \
+	      usr/share/dovecot/conf.d/??-imap*
+
+pop3d_files = usr/lib/dovecot/pop3* \
+	      usr/share/dovecot/conf.d/??-pop3*
+
+lmtpd_files = usr/lib/dovecot/lmtp* \
+	      usr/share/dovecot/conf.d/??-lmtp*
+
+managesieved_files = usr/lib/dovecot/managesieve* \
+		     usr/lib/dovecot/modules/settings/libmanagesieve*
+
+submissiond_files = usr/lib/dovecot/submission* \
+	           usr/share/dovecot/conf.d/??-submission.conf
+
+pgsql_files = usr/lib/dovecot/modules/auth/libdriver_pgsql* \
+	      usr/lib/dovecot/modules/dict/libdriver_pgsql* \
+	      usr/lib/dovecot/modules/libdriver_pgsql*
+
+mysql_files = usr/lib/dovecot/modules/auth/libdriver_mysql* \
+	      usr/lib/dovecot/modules/dict/libdriver_mysql* \
+	      usr/lib/dovecot/modules/libdriver_mysql*
+
+sqlite_files = usr/lib/dovecot/modules/auth/libdriver_sqlite* \
+	       usr/lib/dovecot/modules/dict/libdriver_sqlite* \
+	       usr/lib/dovecot/modules/libdriver_sqlite*
+
+gssapi_files = usr/lib/dovecot/modules/auth/libmech_gssapi*
+
+ldap_files = usr/lib/dovecot/modules/auth/libauthdb_ldap* \
+	     usr/lib/dovecot/modules/dict/libdict_ldap* \
+	     usr/lib/dovecot/libdovecot-ldap* \
+	     usr/share/dovecot/*-ldap.conf.ext \
+	     usr/share/dovecot/conf.d/*-ldap.conf.ext
+
+sieve_files = usr/bin/sieve* \
+	      usr/lib/dovecot/modules/lib??_sieve* \
+	      usr/lib/dovecot/modules/lib??_imap_*sieve* \
+	      usr/lib/dovecot/modules/doveadm/lib??_doveadm_sieve* \
+	      usr/lib/dovecot/modules/sieve \
+	      usr/lib/dovecot/libdovecot-sieve* \
+	      usr/share/man/man1/sieve*
+
+solr_files = usr/lib/dovecot/modules/lib??_fts_solr_*
+
+lucene_files = usr/lib/dovecot/modules/lib??_fts_lucene_*
+
+dev_files = usr/include/* \
+	    usr/lib/dovecot/dovecot-config \
+	    usr/share/aclocal/*.m4
+
+%:
+	dh $@
+
+override_dh_autoreconf:
+	dh_autoreconf -- debian/autogen.sh
+
+override_dh_auto_configure:
+	KRB5CONFIG=krb5-config.mit dh_auto_configure -- \
+	            --with-ldap=plugin \
+	            --with-ssl=openssl \
+	            --with-sql=plugin \
+	            --with-pgsql \
+	            --with-mysql \
+	            --with-sqlite \
+	            --with-gssapi=plugin \
+	            --with-solr \
+	            --with-ioloop=best \
+		    --with-icu \
+	            --with-libwrap \
+	            --with-lucene \
+		    --with-apparmor \
+		    --with-lz4 \
+		    --with-lua=plugin \
+		    --with-sodium \
+		    --libdir=\$${prefix}/lib \
+	            --libexecdir=\$${prefix}/lib \
+		    --docdir=\$${prefix}/share/doc/dovecot-core \
+	            --with-moduledir=\$${prefix}/lib/dovecot/modules \
+	            --disable-rpath \
+	            --with-systemdsystemunitdir=/lib/systemd/system \
+	            --disable-static
+	$(MAKE) dovecot-config
+	
+	# Pigeonhole
+	touch $(PIGEONHOLE_DIR)/stamp.h.in
+	chmod +x $(PIGEONHOLE_DIR)/configure
+	dh_auto_configure -D $(PIGEONHOLE_DIR) -- \
+	        --with-dovecot=../ \
+	        --libdir=\$${prefix}/lib \
+		--libexecdir=\$${prefix}/lib \
+		--disable-static
+
+override_dh_auto_build:
+	# Remove all-settings.c and let it be re-generated from the (patched)
+	# component settings files.
+	rm -f src/config/all-settings.c
+	dh_auto_build --parallel
+	dh_auto_build --parallel -D $(PIGEONHOLE_DIR)
+
+override_dh_auto_clean:
+	dh_auto_clean
+	dh_auto_clean -D $(PIGEONHOLE_DIR)
+
+override_dh_auto_install:
+	# Install everything under dovecot-core
+	$(MAKE) install DESTDIR=$(CORE_DIR)
+	$(MAKE) -C $(PIGEONHOLE_DIR) install DESTDIR=$(CORE_DIR)
+	rm `find $(CURDIR)/debian -name '*.la'`
+	rm $(CORE_DIR)/etc/dovecot/README
+	rm $(CORE_DIR)/usr/lib/dovecot/decode2text.sh
+
+override_dh_install:
+	# dh_auto_install has installed everything in the dovecot-core package.
+	# Run dh_install to install additional files from the source directory
+	# or debian/ to the individual packages. NOTE: there is nothing in
+	# debian/tmp!
+	dh_install
+	install -D -o root -g root -m 0755 $(CORE_DIR)/usr/share/doc/dovecot-core/mkcert.sh \
+		$(CORE_DIR)/usr/share/dovecot/mkcert.sh
+	rm $(CORE_DIR)/usr/share/doc/dovecot-core/mkcert.sh
+	rm $(CORE_DIR)/usr/share/doc/dovecot-core/dovecot-openssl.cnf
+	rm $(CORE_DIR)/usr/share/doc/dovecot-core/solr-schema.xml
+	rm -rf $(CORE_DIR)/usr/share/doc/dovecot-core/example-config
+	
+	$(foreach package,$(patsubst dovecot-%,%,$(shell dh_listpackages)),\
+		$(foreach file,$($(package)_files),\
+			$(call MOVE,$(file),$(package))))
+	
+	rmdir $(CORE_DIR)/usr/include
+	rmdir $(CORE_DIR)/usr/share/aclocal
+	install -d $(PKG_DIR:PKG=dev)/usr/share/dovecot
+	grep ABI_VERSION config.h \
+		| perl -ne '/"(.+)\(.+\)"/ && print $$1' \
+		| tr '[A-Z]' '[a-z]' > $(PKG_DIR:PKG=dev)/usr/share/dovecot/dovecot-abi
+	
+	# Install apport hook
+	install -D -m 644 debian/source_dovecot.py $(CURDIR)/debian/dovecot-core/usr/share/apport/package-hooks/dovecot-core.py
+
+	install -D -m644 debian/dovecot-imapd.ufw.profile debian/dovecot-imapd/etc/ufw/applications.d/dovecot-imapd
+	install -D -m644 debian/dovecot-pop3d.ufw.profile debian/dovecot-pop3d/etc/ufw/applications.d/dovecot-pop3d
+
+override_dh_installpam:
+	dh_installpam -pdovecot-core --name=dovecot
+
+override_dh_installinit:
+	dh_installinit -pdovecot-core --name=dovecot -u"defaults 20"
+
+override_dh_installsystemd:
+	dh_installsystemd -pdovecot-core dovecot.service
+	dh_installsystemd -pdovecot-core --no-enable dovecot.socket
+
+override_dh_gencontrol:
+	dh_gencontrol -- -Vdovecot:ABI-Version=$(shell cat $(CURDIR)/debian/dovecot-dev/usr/share/dovecot/dovecot-abi)
+
+override_dh_strip:
+	dh_strip --dbgsym-migration='dovecot-dbg (<< 1:2.2.32-2~)'
+
+override_dh_makeshlibs:
+	# Do not add an ldconfig trigger; none of the dovecot shared libraries
+	# are public.
+	dh_makeshlibs -n
+
+override_dh_installdocs:
+	dh_installdocs
+	cp pigeonhole/README	$(CORE_DIR)/usr/share/doc/dovecot-core/pigeonhole.README
+	cp pigeonhole/NEWS	$(CORE_DIR)/usr/share/doc/dovecot-core/pigeonhole.NEWS
+
+.PHONY: override_dh_auto_configure override_dh_auto_build \
+	override_dh_auto_clean override_dh_auto_install \
+	override_dh_gencontrol override_dh_installinit \
+	override_dh_strip override_dh_installpam \
+	override_dh_makeshlibs override_dh_installdocs \
+	override_dh_install override_dh_systemd_enable

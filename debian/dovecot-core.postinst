@@ -1,0 +1,92 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "configure" ]; then
+  CONFFILES="dovecot.conf \
+    dovecot-dict-auth.conf.ext \
+    dovecot-dict-sql.conf.ext \
+    dovecot-sql.conf.ext \
+    conf.d/10-auth.conf \
+    conf.d/10-director.conf \
+    conf.d/10-logging.conf \
+    conf.d/10-mail.conf \
+    conf.d/10-master.conf \
+    conf.d/10-ssl.conf \
+    conf.d/10-tcpwrapper.conf \
+    conf.d/15-lda.conf \
+    conf.d/15-mailboxes.conf \
+    conf.d/90-acl.conf \
+    conf.d/90-plugin.conf \
+    conf.d/90-quota.conf \
+    conf.d/auth-checkpassword.conf.ext \
+    conf.d/auth-deny.conf.ext \
+    conf.d/auth-dict.conf.ext \
+    conf.d/auth-master.conf.ext \
+    conf.d/auth-passwdfile.conf.ext \
+    conf.d/auth-sql.conf.ext \
+    conf.d/auth-static.conf.ext \
+    conf.d/auth-system.conf.ext \
+    conf.d/auth-vpopmail.conf.ext"
+
+  ## Users
+  #
+
+  adduser --system --group --home /usr/lib/dovecot --gecos "Dovecot mail server" \
+          --no-create-home --disabled-password --quiet dovecot || true
+
+  adduser --system --group --home /nonexistent --no-create-home --gecos "Dovecot login user" \
+          --disabled-password --quiet dovenull || true
+
+  for conffile in $CONFFILES ; do
+    # Tell ucf that the file in /usr/share/dovecot is the latest
+    # maintainer version, and let it handle how to manage the real
+    # configuration file in /etc/dovecot.
+    ucf --three-way /usr/share/dovecot/$conffile /etc/dovecot/$conffile
+    ucfr dovecot-core /etc/dovecot/$conffile
+    if [ "$conffile" != "dovecot.conf" ] && [ -f "/etc/dovecot/$conffile" ] &&
+		[ `echo $conffile | cut -b -7` != "conf.d/" ]; then
+      chmod 0640 /etc/dovecot/$conffile
+      chgrp dovecot /etc/dovecot/$conffile
+    fi
+  done
+
+  if ! dpkg-statoverride --list /etc/dovecot/private >/dev/null; then
+    dpkg-statoverride --quiet --update --add root root 0700 /etc/dovecot/private
+  fi
+
+  # SSL configuration
+  # Use the ssl-cert-snakeoil certificate in the following cases:
+  # - On new installations
+  # - On upgrades from versions that did not enable SSL by default
+  if [ -z "$2" ] || dpkg --compare-versions "$2" lt "1:2.2.31-1~"; then
+    if [ ! -e /etc/dovecot/private/dovecot.key ] && \
+       [ ! -e /etc/dovecot/private/dovecot.pem ]; then
+      ln -s /etc/ssl/certs/ssl-cert-snakeoil.pem /etc/dovecot/private/dovecot.pem
+      ln -s /etc/ssl/private/ssl-cert-snakeoil.key /etc/dovecot/private/dovecot.key
+    fi
+  fi
+
+  # Remove the old dovecot-common.postrm (if it's still around for some
+  # reason), as purging dovecot-common will remove /etc/dovecot/dovecot.conf.
+  # See #696382.
+  if [ -f "/var/lib/dpkg/info/dovecot-common.postrm" ]; then
+    rm -f /var/lib/dpkg/info/dovecot-common.postrm
+  fi
+fi
+
+if [ "$1" = "triggered" ]; then
+    if [ -x "/etc/init.d/dovecot" ]; then
+        invoke-rc.d dovecot restart
+    fi
+fi
+
+# Stop and disable the systemd socket on upgrade if dovecot.service is enabled as well
+# (see #803915 and #814999). This will be attempted only once, to allow admins
+# to re-enable dovecot.socket if they wish.
+if [ "$1" = "configure" ] && [ -n "$2" ] && dpkg --compare-versions "$2" lt "1:2.2.21-1~"; then
+    if deb-systemd-helper --quiet was-enabled dovecot.service; then
+        deb-systemd-helper disable dovecot.socket
+    fi
+fi
+
+#DEBHELPER#
